@@ -8,8 +8,9 @@
 //
 
 import Foundation
+import Gzip
 
-public open class FileDestination: BaseDestination {
+open class FileDestination: BaseDestination {
 
     public var logFileURL: URL?
     public var syncAfterEachWrite: Bool = false
@@ -38,10 +39,15 @@ public open class FileDestination: BaseDestination {
         }
     }
 
+    public static let dateFormatter = DateFormatter()
+
     override public var defaultHashValue: Int {return 2}
     let fileManager = FileManager.default
-
+    public static var maxLogFilesize = (10 * 1024 * 1024) // 10MB
+    public static var noOfLogFiles = 100 // Number of log files used in rotation
+    
     public init(logFileURL: URL? = nil) {
+        FileDestination.dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         if let logFileURL = logFileURL {
             self.logFileURL = logFileURL
             super.init()
@@ -89,9 +95,84 @@ public open class FileDestination: BaseDestination {
         let formattedString = super.send(level, msg: msg, thread: thread, file: file, function: function, line: line, context: context)
 
         if let str = formattedString {
-            _ = saveToFile(str: str)
+            _ = validateSaveFile(str: str)
         }
         return formattedString
+    }
+    
+    func validateSaveFile(str: String) -> Bool {
+        guard let url = logFileURL else { return false }
+        let filePath = url.path
+        if FileManager.default.fileExists(atPath: filePath) == true {
+            do {
+                // Get file size
+                let attr = try FileManager.default.attributesOfItem(atPath: filePath)
+                let fileSize = attr[FileAttributeKey.size] as! UInt64
+                // Do file rotation
+                if fileSize > FileDestination.maxLogFilesize {
+                    rotateCompressFile(filePath)
+                }
+            } catch {
+                print("validateSaveFile error: \(error)")
+            }
+        }
+        return saveToFile(str: str)
+    }
+
+    private func rotateCompressFile(_ filePath: String) {
+        let firstIndex = 1
+        let pathname = (filePath as NSString).deletingLastPathComponent
+        let filename = (filePath as NSString).lastPathComponent
+        let foldername = (filename as NSString).deletingPathExtension
+        let compressedPath = String.init(format: "%@/%@", pathname, foldername)
+        
+        do {
+            // rotate files
+            if var content = try? FileManager.default.contentsOfDirectory(atPath: compressedPath) {
+                if content.count == FileDestination.noOfLogFiles {
+                    // Delete the last file
+                    let suffix = String.init(format: "%d.gz", FileDestination.noOfLogFiles)
+                    for (index, file) in content.enumerated() {
+                        if file.hasSuffix(suffix) {
+                            let lastFile = String.init(format: "%@/%@", compressedPath, file)
+                            try FileManager.default.removeItem(atPath: lastFile)
+                            content.remove(at: index)
+                        }
+                    }
+                }
+                // Move the current file to next index
+                for file in content {
+                    let start = file.lastIndex(of: "-")!
+                    let end = file.lastIndex(of: ".")!
+                    var strIndex = String(file[start..<end])
+                    strIndex.removeFirst()
+                    let index = (strIndex as NSString).intValue
+                    let oldFile = String.init(format: "%@/%@", compressedPath, file)
+                    let newFile = String.init(format: "%@/%@-%d.gz", compressedPath, String(file[..<start]), index + 1)
+                    try FileManager.default.moveItem(atPath: oldFile, toPath: newFile)
+                }
+            }
+
+        // Finally, compress the current file
+        let attributes = try FileManager.default.attributesOfItem(atPath: filePath)
+            let date = FileDestination.dateFormatter.string(from: (attributes[FileAttributeKey.creationDate] as! Date))
+
+        // raw data
+        let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+
+        if FileManager.default.fileExists(atPath: compressedPath) == false {
+            try FileManager.default.createDirectory(atPath: compressedPath, withIntermediateDirectories: false, attributes: nil)
+        }
+
+        let compressedFile = String.init(format: "%@/%@-%@-%d.gz", compressedPath, foldername, date, firstIndex)
+        let compressedData = try! data.gzipped()
+        try compressedData.write(to: URL(fileURLWithPath: compressedFile))
+
+        // Delete the raw data file
+        try FileManager.default.removeItem(atPath: filePath)
+        } catch {
+            print("rotateCompressFile error: \(error)")
+        }
     }
 
     /// appends a string as line to a file.
