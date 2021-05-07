@@ -8,11 +8,17 @@
 //
 
 import Foundation
+import os
+
+@available(OSX 11.0, *)
+let logger = Logger(subsystem: "macappproxy", category: "SwiftyBeaver")
+@available(OSX 10.12, *)
+let oslog = OSLog(subsystem: "macappproxy", category: "SwiftyBeaver")
 
 public class ConsoleDestination: BaseDestination {
 
     /// use NSLog instead of print, default is false
-    public var useNSLog = false
+    public var useOSLog = false
     /// uses colors compatible to Terminal instead of Xcode, default is false
     public var useTerminalColors: Bool = false {
         didSet {
@@ -56,11 +62,15 @@ public class ConsoleDestination: BaseDestination {
         let formattedString = super.send(level, msg: msg, thread: thread, file: file, function: function, line: line, context: context)
 
         if let str = formattedString {
-            if useNSLog {
+            if useOSLog {
                 #if os(Linux)
                     print(str)
                 #else
-                    NSLog("%@", str)
+                    if #available(OSX 11.0, *) {
+                        logger.log("\(str, privacy: .public)")
+                    } else if #available(OSX 10.12, *) {
+                        os_log("%{public}@", log: oslog, type: .default, str)
+                    }
                 #endif
             } else {
                 print(str)
