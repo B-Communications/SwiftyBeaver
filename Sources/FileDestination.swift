@@ -43,8 +43,10 @@ open class FileDestination: BaseDestination {
 
     override public var defaultHashValue: Int {return 2}
     let fileManager = FileManager.default
-    public static var maxLogFilesize = (10 * 1024 * 1024) // 10MB
+    public static var defualtRollover = false
     public static var noOfLogFiles = 100 // Number of log files used in rotation
+    public static var maxInterval = 60 * 60 //1h
+    public static var maxLogFilesize = (10 * 1024 * 1024) // 10MB
     
     public init(logFileURL: URL? = nil) {
         FileDestination.dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -129,17 +131,35 @@ open class FileDestination: BaseDestination {
         do {
             // rotate files
             if var content = try? FileManager.default.contentsOfDirectory(atPath: compressedPath) {
-                if content.count == FileDestination.noOfLogFiles {
-                    // Delete the last file
-                    let suffix = String.init(format: "%d.gz", FileDestination.noOfLogFiles)
+                if FileDestination.defualtRollover {
+                    if content.count == FileDestination.noOfLogFiles {
+                        // Delete the last file
+                        let suffix = String.init(format: "%d.gz", FileDestination.noOfLogFiles)
+                        for (index, file) in content.enumerated() {
+                            if file.hasSuffix(suffix) {
+                                let lastFile = String.init(format: "%@/%@", compressedPath, file)
+                                try FileManager.default.removeItem(atPath: lastFile)
+                                content.remove(at: index)
+                            }
+                        }
+                    }
+                    } else {
                     for (index, file) in content.enumerated() {
-                        if file.hasSuffix(suffix) {
-                            let lastFile = String.init(format: "%@/%@", compressedPath, file)
-                            try FileManager.default.removeItem(atPath: lastFile)
+                        let start = file.firstIndex(of: "-")!
+                        let end = file.lastIndex(of: "-")!
+                        var strDate = String(file[start..<end])
+                        strDate.removeFirst()
+                        let creationDate = FileDestination.dateFormatter.date(from: strDate)
+                        let interval = Int(ceil(abs(creationDate!.timeIntervalSinceNow)))
+                                                
+                        if interval > FileDestination.maxInterval {
+                            let path = String.init(format: "%@/%@", compressedPath, file)
+                            try FileManager.default.removeItem(atPath: path)
                             content.remove(at: index)
                         }
                     }
                 }
+                
                 // Move the current file to next index
                 for file in content {
                     let start = file.lastIndex(of: "-")!
@@ -153,23 +173,23 @@ open class FileDestination: BaseDestination {
                 }
             }
 
-        // Finally, compress the current file
-        let attributes = try FileManager.default.attributesOfItem(atPath: filePath)
+            // Finally, compress the current file
+            let attributes = try FileManager.default.attributesOfItem(atPath: filePath)
             let date = FileDestination.dateFormatter.string(from: (attributes[FileAttributeKey.creationDate] as! Date))
 
-        // raw data
-        let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+            // raw data
+            let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
 
-        if FileManager.default.fileExists(atPath: compressedPath) == false {
-            try FileManager.default.createDirectory(atPath: compressedPath, withIntermediateDirectories: false, attributes: nil)
-        }
+            if FileManager.default.fileExists(atPath: compressedPath) == false {
+                try FileManager.default.createDirectory(atPath: compressedPath, withIntermediateDirectories: false, attributes: nil)
+            }
 
-        let compressedFile = String.init(format: "%@/%@-%@-%d.gz", compressedPath, foldername, date, firstIndex)
-        let compressedData = try! data.gzipped()
-        try compressedData.write(to: URL(fileURLWithPath: compressedFile))
+            let compressedFile = String.init(format: "%@/%@-%@-%d.gz", compressedPath, foldername, date, firstIndex)
+            let compressedData = try data.gzipped()
+            try compressedData.write(to: URL(fileURLWithPath: compressedFile))
 
-        // Delete the raw data file
-        try FileManager.default.removeItem(atPath: filePath)
+            // Delete the raw data file
+            try FileManager.default.removeItem(atPath: filePath)
         } catch {
             print("rotateCompressFile error: \(error)")
         }
