@@ -105,11 +105,16 @@ class FileDestinationTests: XCTestCase {
         
         let path = "/tmp/\(UUID().uuidString)/testSBF.log"
         deleteFile(path: path)
+        deleteFile(path: "/tmp/\(UUID().uuidString)/testSBF.log.1")
+
         
         // add file
         let file = FileDestination()
         file.logFileURL = URL(string: "file://" + path)!
         file.format = "$L: $M $X"
+        // active logfile rotation
+        file.logFileAmount = 2
+        file.logFileMaxSize = 1000
         _ = log.addDestination(file)
         
         log.verbose("first line to log")
@@ -129,7 +134,7 @@ class FileDestinationTests: XCTestCase {
         XCTAssertNotNil(fileLines)
         guard let lines = fileLines else { return }
         XCTAssertEqual(lines.count, 5)
-        XCTAssertEqual(lines[0], "VERBOSE: first line to log")
+        XCTAssertEqual(lines[0], "VERBOSE: first line to log") // is in first rotation file
         XCTAssertEqual(lines[1], "DEBUG: second line to log")
         XCTAssertEqual(lines[2], "INFO: third line to log")
         XCTAssertEqual(lines[3], "WARNING: fourth line with context 123")

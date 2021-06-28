@@ -38,16 +38,24 @@ open class FileDestination: BaseDestination {
             }
         }
     }
-
-    public static let dateFormatter = DateFormatter()
-
-    override public var defaultHashValue: Int {return 2}
-    let fileManager = FileManager.default
+    
+    // LOGFILE ROTATION
+    // ho many bytes should a logfile have until it is rotated?
+    // default is 5 MB. Just is used if logFileAmount > 1
+    public var logFileMaxSize = (5 * 1024 * 1024)
+    // Number of log files used in rotation, default is 1 which deactivates file rotation
+    public var logFileAmount = 1
     public static var defualtRollover = false
     public static var noOfLogFiles = 100 // Number of log files used in rotation
     public static var maxInterval = 60 * 60 //1h
     public static var maxLogFilesize = (10 * 1024 * 1024) // 10MB
-    
+        
+    public static let dateFormatter = DateFormatter()
+
+    override public var defaultHashValue: Int {return 2}
+    let fileManager = FileManager.default
+
+
     public init(logFileURL: URL? = nil) {
         FileDestination.dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         if let logFileURL = logFileURL {
@@ -102,20 +110,23 @@ open class FileDestination: BaseDestination {
         return formattedString
     }
     
+    // check if filesize is bigger than wanted and if yes then rotate them
     func validateSaveFile(str: String) -> Bool {
-        guard let url = logFileURL else { return false }
-        let filePath = url.path
-        if FileManager.default.fileExists(atPath: filePath) == true {
-            do {
-                // Get file size
-                let attr = try FileManager.default.attributesOfItem(atPath: filePath)
-                let fileSize = attr[FileAttributeKey.size] as! UInt64
-                // Do file rotation
-                if fileSize > FileDestination.maxLogFilesize {
-                    rotateCompressFile(filePath)
+        if self.logFileAmount > 1 {
+            guard let url = logFileURL else { return false }
+            let filePath = url.path
+            if FileManager.default.fileExists(atPath: filePath) == true {
+                do {
+                    // Get file size
+                    let attr = try FileManager.default.attributesOfItem(atPath: filePath)
+                    let fileSize = attr[FileAttributeKey.size] as! UInt64
+                    // Do file rotation
+                    if fileSize > logFileMaxSize {
+                        rotateCompressFile(filePath)
+                    }
+                } catch {
+                    print("validateSaveFile error: \(error)")
                 }
-            } catch {
-                print("validateSaveFile error: \(error)")
             }
         }
         return saveToFile(str: str)
@@ -194,7 +205,7 @@ open class FileDestination: BaseDestination {
             print("rotateCompressFile error: \(error)")
         }
     }
-
+        
     /// appends a string as line to a file.
     /// returns boolean about success
     func saveToFile(str: String) -> Bool {
