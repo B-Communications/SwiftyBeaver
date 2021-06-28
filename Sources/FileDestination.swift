@@ -41,15 +41,13 @@ open class FileDestination: BaseDestination {
     
     // LOGFILE ROTATION
     // ho many bytes should a logfile have until it is rotated?
-    // default is 5 MB. Just is used if logFileAmount > 1
-    public var logFileMaxSize = (5 * 1024 * 1024)
     // Number of log files used in rotation, default is 1 which deactivates file rotation
-    public var logFileAmount = 1
-    public static var defualtRollover = false
-    public static var noOfLogFiles = 100 // Number of log files used in rotation
-    public static var maxInterval = 60 * 60 //1h
-    public static var maxLogFilesize = (10 * 1024 * 1024) // 10MB
-        
+    //public var logFileAmount = 1
+    public static var defualtRollover = true
+    public static var maxLogFiles = 100 // Number of log files used in rotation
+    public static var maxInterval = 30 * 24 * 60 * 60 //1 month
+    public static var logFileSize = 10 * 1024 * 1024 // 10MB
+
     public static let dateFormatter = DateFormatter()
 
     override public var defaultHashValue: Int {return 2}
@@ -112,7 +110,7 @@ open class FileDestination: BaseDestination {
     
     // check if filesize is bigger than wanted and if yes then rotate them
     func validateSaveFile(str: String) -> Bool {
-        if self.logFileAmount > 1 {
+        //if self.logFileAmount > 1 {
             guard let url = logFileURL else { return false }
             let filePath = url.path
             if FileManager.default.fileExists(atPath: filePath) == true {
@@ -121,40 +119,48 @@ open class FileDestination: BaseDestination {
                     let attr = try FileManager.default.attributesOfItem(atPath: filePath)
                     let fileSize = attr[FileAttributeKey.size] as! UInt64
                     // Do file rotation
-                    if fileSize > logFileMaxSize {
+                    if fileSize > FileDestination.logFileSize {
                         rotateCompressFile(filePath)
                     }
                 } catch {
                     print("validateSaveFile error: \(error)")
                 }
             }
-        }
+        //}
         return saveToFile(str: str)
     }
 
+    private func getIndex(str: String) -> Int {
+        let start = str.lastIndex(of: "-")!
+        let end = str.lastIndex(of: ".")!
+        var strIndex = String(str[start..<end])
+        strIndex.removeFirst()
+        return Int(strIndex)!
+    }
+    
     private func rotateCompressFile(_ filePath: String) {
         let firstIndex = 1
         let pathname = (filePath as NSString).deletingLastPathComponent
         let filename = (filePath as NSString).lastPathComponent
         let foldername = (filename as NSString).deletingPathExtension
         let compressedPath = String.init(format: "%@/%@", pathname, foldername)
-        
+
         do {
             // rotate files
             if var content = try? FileManager.default.contentsOfDirectory(atPath: compressedPath) {
                 if FileDestination.defualtRollover {
-                    if content.count == FileDestination.noOfLogFiles {
-                        // Delete the last file
-                        let suffix = String.init(format: "%d.gz", FileDestination.noOfLogFiles)
+                    if content.count >= FileDestination.maxLogFiles {
+                        // Delete the last files
                         for (index, file) in content.enumerated() {
-                            if file.hasSuffix(suffix) {
+                            let id = getIndex(str: file)
+                            if id >= FileDestination.maxLogFiles {
                                 let lastFile = String.init(format: "%@/%@", compressedPath, file)
                                 try FileManager.default.removeItem(atPath: lastFile)
                                 content.remove(at: index)
                             }
                         }
                     }
-                    } else {
+                } else {
                     for (index, file) in content.enumerated() {
                         let start = file.firstIndex(of: "-")!
                         let end = file.lastIndex(of: "-")!
@@ -174,10 +180,7 @@ open class FileDestination: BaseDestination {
                 // Move the current file to next index
                 for file in content {
                     let start = file.lastIndex(of: "-")!
-                    let end = file.lastIndex(of: ".")!
-                    var strIndex = String(file[start..<end])
-                    strIndex.removeFirst()
-                    let index = (strIndex as NSString).intValue
+                    let index = getIndex(str: file)
                     let oldFile = String.init(format: "%@/%@", compressedPath, file)
                     let newFile = String.init(format: "%@/%@-%d.gz", compressedPath, String(file[..<start]), index + 1)
                     try FileManager.default.moveItem(atPath: oldFile, toPath: newFile)
