@@ -22,6 +22,7 @@ public protocol FilterType : AnyObject {
     func getTarget() -> Filter.TargetType
     func isRequired() -> Bool
     func isExcluded() -> Bool
+    func setMinLevel(minLevel: SwiftyBeaver.Level)
     func reachedMinLevel(_ level: SwiftyBeaver.Level) -> Bool
 }
 
@@ -51,7 +52,7 @@ public class Filter {
 
     let targetType: Filter.TargetType
     let required: Bool
-    let minLevel: SwiftyBeaver.Level
+    var minLevel: SwiftyBeaver.Level
 
     public init(_ target: Filter.TargetType, required: Bool, minLevel: SwiftyBeaver.Level) {
         self.targetType = target
@@ -69,6 +70,10 @@ public class Filter {
 
     public func isExcluded() -> Bool {
         return false
+    }
+
+    public func setMinLevel(minLevel: SwiftyBeaver.Level) {
+        self.minLevel = minLevel
     }
 
     /// returns true of set minLevel is >= as given level
